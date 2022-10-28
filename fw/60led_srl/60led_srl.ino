@@ -98,7 +98,54 @@ float bin_minimum[NUMPIXELS] = {
 const float min_auto_gain = 0.005f;
 float auto_gain_level[NUMPIXELS];
 
+float hsv_offset = 0.0f;
+
 uint32_t loop_count = 0;
+
+struct RGB {
+  float r;
+  float g;
+  float b;
+};
+
+RGB hsv2rgb(float hue, float s, float v) {
+  // From: https://www.rapidtables.com/convert/color/hsv-to-rgb.html
+  const float c = v * s;
+  const float X = c * (1.0f - fabs(fmod(hue / 0.16666667f, 2.0f) - 1.0f));
+  const float m = v - c;
+  RGB result;
+  if (hue < 0.1666667f) {
+    result.r = c;
+    result.g = X;
+    result.b = 0.0f;
+  } else if (hue < 0.3333333f) {
+    result.r = X;
+    result.b = c;
+    result.g = 0.0f;
+  } else if (hue < 0.5f) {
+    result.r = 0.0f;
+    result.g = c;
+    result.b = X;
+  } else if (hue < 0.6666667f) {
+    result.r = 0.0f;
+    result.g = X;
+    result.b = c;
+  } else if (hue < 0.83333333f) {
+    result.r = X;
+    result.g = 0.0f;
+    result.b = c;
+  } else {
+    result.r = c;
+    result.g = 0.0f;
+    result.b = X;
+  }
+
+  result.r += m;
+  result.g += m;
+  result.b += m;
+
+  return result;
+}
 
 void setup() {
   for (auto& v : auto_gain_level) { v = min_auto_gain; }
@@ -147,20 +194,19 @@ void loop() {
 
   // First, print out some debugging information.
   
-//  Serial.print("loop ");
-//  Serial.print(loop_count);
-//  Serial.println();
+  Serial.print("loop ");
+  Serial.print(loop_count);
+  Serial.println();
+
+  const float hsv_wrap_period_s = 10.0f;
+  hsv_offset += static_cast<float>(fft_size) / static_cast<float>(frequency) / hsv_wrap_period_s;
+  if (hsv_offset >= 1.0f) { hsv_offset -= 1.0f; }
   
   loop_count++;
 
   RemoveDCBias(read_buffer);
 
   ZeroFFT(read_buffer, fft_size);
-
-//  for (int i = 0; i < fft_size / 2 ; i++) {
-//    Serial.print(read_buffer[i]);
-//    Serial.print(" ");
-//  }
 
   // Calculate the total power in each pixel.
   float pixel_values[NUMPIXELS] = {};
@@ -171,9 +217,6 @@ void loop() {
       total += std::max<short>(0, read_buffer[fft_offset] - raw_min_value);
     }
 
-//    Serial.print(total);
-//    Serial.print(" ");
-    
     const auto level = total;
     if (level > auto_gain_level[i]) {
       auto_gain_level[i] = level;
@@ -185,22 +228,15 @@ void loop() {
     
     pixel_values[i] = gain_level;
 
-    const int r = 0;
-    const int g = static_cast<int>(gain_level * 250.0f);
-    const int b = 0;
-  
-    pixels.setPixelColor(i, pixels.Color(r, g, b));
+    float hue = hsv_offset + i / (NUMPIXELS - 1.0f);
+    if (hue > 1.0f) { hue -= 1.0f; }
 
-//    if (i % 6 == 0) {
-//      Serial.print(" ");
-//      Serial.print(i);
-//      Serial.print(",");
-//      Serial.print(level, 4);
-//      Serial.print(",");
-//      Serial.print(gain_level, 3);
-//      Serial.print(",");
-//      Serial.print(auto_gain_level[i], 4);
-//    }
+    auto rgb = hsv2rgb(hue, 1.0f, gain_level);
+  
+    pixels.setPixelColor(i, pixels.Color(
+      static_cast<int>(rgb.r * 200.0f),
+      static_cast<int>(rgb.g * 200.0f),
+      static_cast<int>(rgb.b * 200.0f)));
   }
 
   pixels.show();
